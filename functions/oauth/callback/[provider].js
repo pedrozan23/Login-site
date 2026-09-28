@@ -1,12 +1,12 @@
 import { PROVIDERS, getClientId, getClientSecret } from '../../_shared/providers.js';
 import { randomToken, sha256Hex } from '../../_shared/crypto.js';
 import { buildSessionCookie, clearCookie, getCookie } from '../../_shared/cookies.js';
-import { verifyGoogleIdToken } from '../../_shared/oidc.js';
+import { verifyGoogleIdToken, confirmGitHubIdentity } from '../../_shared/oidc.js';
 
 export async function onRequestGet(context) {
   const { request, env, params } = context;
   const provider = params.provider;
-  if (provider !== 'google') {
+  if (provider !== 'google' && provider !== 'github') {
     return new Response('Not found', { status: 404 });
   }
 
@@ -70,7 +70,15 @@ export async function onRequestGet(context) {
   }
   const tokens = await tokenResponse.json();
 
-  const identity = await verifyGoogleIdToken(tokens.id_token, clientId, row.nonce);
+  let identity;
+  if (provider === 'google') {
+    identity = await verifyGoogleIdToken(tokens.id_token, clientId, row.nonce);
+  } else {
+    if (!tokens.access_token || !/^bearer$/i.test(tokens.token_type || '')) {
+      return new Response('Resposta de token inválida do GitHub.', { status: 400, headers: { 'Cache-Control': 'no-store' } });
+    }
+    identity = await confirmGitHubIdentity(tokens.access_token, clientId, clientSecret);
+  }
 
   const sessionId = randomToken();
   const sessionHash = await sha256Hex(sessionId);
